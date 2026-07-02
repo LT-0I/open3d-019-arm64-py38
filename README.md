@@ -22,8 +22,10 @@ glibc 2.31，与 OrangePi5 完全匹配）构建，并在下载前于干净的 a
 3. 在 OrangePi5 上安装：
 
 ```bash
-sudo apt install -y libgfortran5 libgomp1
-pip install open3d-0.19.0-cp38-cp38-linux_aarch64.whl
+sudo apt install -y libgfortran5 libgomp1 libx11-6 libgl1
+# 关键：Ubuntu 20.04 自带 pip(20.0.2)不认 manylinux_2_31 标签，必须先升级
+python3 -m pip install --upgrade pip
+python3 -m pip install open3d-0.19.0-cp38-cp38-manylinux_2_31_aarch64.whl
 python3 -c "import open3d as o3d; print(o3d.__version__)"
 ```
 
