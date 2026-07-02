@@ -32,6 +32,14 @@ jobs:
           cd open3d-src
           patch -p1 < ../open3d-arm64-fix.patch
 
+      - name: Work around Anaconda channel ToS in Open3D Dockerfile
+        run: |
+          cd open3d-src
+          # Anaconda（2025 起）要求非交互接受默认频道 ToS，v0.19.0 的 Dockerfile 早于此改动
+          sed -i '/^RUN conda create -y -n open3d/i RUN conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main --channel https://repo.anaconda.com/pkgs/r || true' docker/Dockerfile.openblas
+          sed -i '/^RUN conda tos accept/i ENV CONDA_PLUGINS_AUTO_ACCEPT_TOS=yes' docker/Dockerfile.openblas
+          grep -n -B1 -A2 "CONDA_PLUGINS_AUTO_ACCEPT_TOS" docker/Dockerfile.openblas
+
       - name: Build ARM64 + py3.8 wheel (official openblas-arm64-py38 recipe)
         run: |
           cd open3d-src
