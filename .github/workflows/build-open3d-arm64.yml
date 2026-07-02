@@ -14,6 +14,8 @@ name: build-open3d-019-arm64-py38
 # ────────────────────────────────────────────────────────────────────────
 
 on:
+  push:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
