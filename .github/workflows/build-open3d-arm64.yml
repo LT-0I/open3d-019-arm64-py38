@@ -1,17 +1,10 @@
 name: build-open3d-019-arm64-py38
 
-# ── 用法 ────────────────────────────────────────────────────────────────
-# 1) 新建一个【公开】仓库（公开才免费用 arm64 runner）
-# 2) 把本文件放到 .github/workflows/ 下，把 open3d-arm64-fix.patch 放到仓库根目录
-# 3) Actions 页面手动 Run workflow
-# 4) 跑完在 Artifacts 下载 open3d-0.19.0-cp38-cp38-linux_aarch64.whl
-# 5) scp 到 OrangePi5:
-#      sudo apt install -y libgfortran5 libgomp1
-#      pip install open3d-0.19.0-cp38-cp38-linux_aarch64.whl
-# 关键点：v0.19.0 官方没发 ARM64 wheel 是因为 bug #7130（aarch64 静态 libgfortran
-# 未用 -fPIC → import 报 "cannot allocate memory in static TLS block"）。
-# 本 workflow 先打上官方修复 PR #7271 的补丁，再用官方 docker 配方构建。
-# ────────────────────────────────────────────────────────────────────────
+# 为 OrangePi5 (aarch64 / Ubuntu 20.04 / Python 3.8) 构建 Open3D 0.19.0 wheel。
+# v0.19.0 官方无 ARM64 wheel（bug #7130：aarch64 静态 libgfortran 未 -fPIC →
+# import 报 "cannot allocate memory in static TLS block"）。本 workflow 先打上
+# 官方修复 PR #7271 的补丁，再用官方 docker 配方（base arm64v8/ubuntu:20.04）构建，
+# 并在干净的 arm64 ubuntu:20.04 + py3.8 容器里真 import 验证后再产出 wheel。
 
 on:
   push:
@@ -20,55 +13,44 @@ on:
 
 jobs:
   build:
-    # 原生 aarch64 runner（非 QEMU），公开仓库免费。也可换 ubuntu-24.04-arm
-    runs-on: ubuntu-22.04-arm
+    runs-on: ubuntu-22.04-arm      # 原生 aarch64 runner，公开仓库免费
     timeout-minutes: 300
     steps:
-      - name: 取出本仓库（含 open3d-arm64-fix.patch）
+      - name: Checkout this repo (patch + smoke.py)
         uses: actions/checkout@v4
 
-      - name: 确认宿主是原生 aarch64
-        run: uname -m   # 期望 aarch64
+      - name: Confirm native aarch64
+        run: uname -m
 
       - name: Clone Open3D v0.19.0
         run: |
           git clone --recursive --branch v0.19.0 --depth 1 \
             https://github.com/isl-org/Open3D.git open3d-src
 
-      - name: 打上 ARM64 修复补丁（PR #7271）
+      - name: Apply ARM64 fix patch (upstream PR #7271)
         run: |
           cd open3d-src
           patch -p1 < ../open3d-arm64-fix.patch
-          echo "补丁应用成功"
 
-      - name: 官方 docker 配方构建 ARM64 + py3.8 wheel（OpenBLAS，纯 CPU）
+      - name: Build ARM64 + py3.8 wheel (official openblas-arm64-py38 recipe)
         run: |
           cd open3d-src
-          # BASE_IMAGE=arm64v8/ubuntu:20.04 → 产物 glibc 2.31，匹配 OrangePi5
           ./docker/docker_build.sh openblas-arm64-py38
           ls -lh ./*.whl
 
-      - name: 冒烟测试：在干净的 arm64 ubuntu:20.04 + py3.8 里真 import
+      - name: Smoke test import in clean arm64 ubuntu:20.04 + py3.8
         run: |
-          WHL=$(ls open3d-src/*.whl)
-          docker run --rm -v "$PWD/open3d-src:/w" arm64v8/ubuntu:20.04 bash -c '
+          WHL=$(basename $(ls open3d-src/*.whl))
+          docker run --rm -v "$PWD:/w" arm64v8/ubuntu:20.04 bash -c "
             set -e
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq
             apt-get install -y -qq python3 python3-pip libgfortran5 libgomp1 >/dev/null
-            pip3 install --quiet /w/'"$(basename "$WHL")"'
-            python3 - <<PY
-import open3d as o3d, numpy as np
-print("open3d version:", o3d.__version__)
-pc = o3d.geometry.PointCloud()
-pc.points = o3d.utility.Vector3dVector(np.random.rand(1000, 3))
-down = pc.voxel_down_sample(0.05)
-print("voxel_down_sample OK, points:", len(down.points))
-print("SMOKE TEST PASSED")
-PY
-          '
+            pip3 install --quiet /w/open3d-src/$WHL
+            python3 /w/smoke.py
+          "
 
-      - name: 上传 wheel
+      - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
           name: open3d-0.19.0-cp38-aarch64-wheel
